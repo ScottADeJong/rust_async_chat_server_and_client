@@ -28,7 +28,6 @@ fn main() {
                         .collect::<Vec<char>>()
                         .iter()
                         .collect();
-                    //println!("message recv {:?}", msg);
                     if !msg.contains(local_addr.as_str()) {
                         println!("{:?}", msg);
                     }
@@ -45,7 +44,6 @@ fn main() {
                     let mut buff = msg.clone().into_bytes();
                     buff.resize(MSG_SIZE, 0);
                     client.write_all(&buff).expect("writing to socket failed");
-                    //println!("message sent {:?}", msg);
                 }
                 Err(TryRecvError::Empty) => (),
                 Err(TryRecvError::Disconnected) => break,
@@ -68,9 +66,3 @@ fn main() {
     }
     println!("bye bye!");
 }
-
-// To run this program you need to open 2 terminals. One for the client and one for the server.
-// In the server run `cargo run`.
-// Then do the same in your client. And this time you should see a message, `write a message`.
-// Type something and then you should see that in the server.
-// If you type ':quit' then the program will quit...
