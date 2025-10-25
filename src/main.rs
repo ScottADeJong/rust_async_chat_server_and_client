@@ -3,7 +3,7 @@ use std::net::TcpListener;
 use std::sync::mpsc;
 use std::thread;
 
-const LOCAL: &str = "127.0.0.1:6000";
+const LOCAL: &str = "127.0.0.1:7070";
 const MSG_SIZE: usize = 255;
 const SLEEP: u64 = 100;
 
@@ -40,6 +40,7 @@ fn process_command(command: &str, user: &mut User) {
                     None => String::from("unknown"),
                 }
             }
+            // Should message user that the command was not recognized
             _ => (),
         }
     }
@@ -64,10 +65,6 @@ fn main() {
                 let mut user = User::new(addr.to_string());
                 loop {
                     let mut buff = vec![0; MSG_SIZE];
-                    if !user.is_active {
-                        println!("got here");
-                        socket.shutdown(std::net::Shutdown::Both).unwrap();
-                    }
 
                     match socket.read(&mut buff) {
                         Ok(_) => {
@@ -82,6 +79,14 @@ fn main() {
                                     let msg = msg.replace('"', "");
                                     tx.send(msg).expect("failed to send msg to rx");
                                 }
+                            }
+                            if !user.is_active {
+                                println!("closing connection with: {}", addr);
+                                match socket.shutdown(std::net::Shutdown::Both) {
+                                    Ok(_) => println!("Connection shut down"),
+                                    Err(_) => println!("Failed to cleanly shut down connection"),
+                                }
+                                break;
                             }
                         }
                         // This error is ignored because it's really just a real-time
