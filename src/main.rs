@@ -4,38 +4,14 @@ use std::sync::mpsc::{self, TryRecvError};
 use std::thread;
 use std::time::Duration;
 
-const LOCAL: &str = "127.0.0.1:6000";
+const LOCAL: &str = "127.0.0.1:7070";
 const MSG_SIZE: usize = 255;
 const SLEEP: u64 = 100;
 
-struct Message {
-    source: String,
-    message: String,
-}
-
-#[derive(Clone)]
-struct User {
-    nick_name: String,
-    is_active: bool,
-}
-
-impl User {
-    fn new(nick_name: String) -> Self {
-        Self {
-            nick_name,
-            is_active: true,
-        }
-    }
-
-    fn disconnect(&mut self) {
-        self.is_active = false;
-    }
-}
-
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let mut user = match args.get(1) {
-        Some(s) => User::new(s.to_string()),
+    let user = match args.get(1) {
+        Some(s) => s,
         None => {
             eprintln!("usage: {} user_name", args[0]);
             return;
@@ -57,9 +33,7 @@ fn main() {
                 Ok(_) => {
                     let msg = String::from_utf8(buff.into_iter().filter(|n| *n != 0).collect())
                         .expect("Invalid utf8 message");
-                    if !msg.is_empty()
-                        && !msg.contains(format!("{}: ", &thread_user.nick_name).as_str())
-                    {
+                    if !msg.is_empty() && !msg.contains(format!("{}: ", &thread_user).as_str()) {
                         println!("--->{:?}", msg);
                     }
                 }
@@ -88,7 +62,7 @@ fn main() {
     });
 
     println!("Write a Message:");
-    if tx.send(format!(":name {}", user.nick_name)).is_err() {
+    if tx.send(format!(":name {}", user)).is_err() {
         return;
     };
 
@@ -99,8 +73,14 @@ fn main() {
             .expect("reading from stdin failed");
         let msg = buff.trim().to_string();
 
-        if msg == ":quit" || tx.send(msg).is_err() {
-            break;
+        match tx.send(msg.clone()) {
+            Ok(_) => {
+                if msg == ":quit" {
+                    thread::sleep(Duration::from_millis(500));
+                    break;
+                }
+            }
+            Err(_) => break,
         }
     }
     println!("Goodbye!");
