@@ -5,9 +5,10 @@ use std::thread;
 
 const LOCAL: &str = "127.0.0.1:6000";
 const MSG_SIZE: usize = 255;
+const SLEEP: u64 = 100;
 
 fn sleep() {
-    thread::sleep(::std::time::Duration::from_millis(100));
+    thread::sleep(::std::time::Duration::from_millis(SLEEP));
 }
 
 fn main() {
@@ -25,26 +26,28 @@ fn main() {
             let tx = tx.clone();
             clients.push(socket.try_clone().expect("failed to clone client"));
 
-            thread::spawn(move || loop {
-                let mut buff = vec![0; MSG_SIZE];
+            thread::spawn(move || {
+                loop {
+                    let mut buff = vec![0; MSG_SIZE];
 
-                match socket.read_exact(&mut buff) {
-                    Ok(_) => {
-                        let msg = buff.into_iter().take_while(|&x| x != 0).collect::<Vec<_>>();
-                        let msg = String::from_utf8(msg).expect("Invalid utf8 message");
+                    match socket.read_exact(&mut buff) {
+                        Ok(_) => {
+                            let msg = buff.into_iter().take_while(|&x| x != 0).collect::<Vec<_>>();
+                            let msg = String::from_utf8(msg).expect("Invalid utf8 message");
 
-                        let msg = format!("{}: {:?}", addr, msg);
-                        let msg = msg.replace('"', "");
-                        tx.send(msg).expect("failed to send msg to rx");
+                            let msg = format!("{}: {}", addr, msg);
+                            let msg = msg.replace('"', "");
+                            tx.send(msg).expect("failed to send msg to rx");
+                        }
+                        Err(ref err) if err.kind() == ErrorKind::WouldBlock => (),
+                        Err(_) => {
+                            println!("closing connection with: {}", addr);
+                            break;
+                        }
                     }
-                    Err(ref err) if err.kind() == ErrorKind::WouldBlock => (),
-                    Err(_) => {
-                        println!("closing connection with: {}", addr);
-                        break;
-                    }
+
+                    sleep();
                 }
-
-                sleep();
             });
         }
 
