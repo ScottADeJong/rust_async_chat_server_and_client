@@ -6,6 +6,7 @@ use std::time::Duration;
 
 const LOCAL: &str = "127.0.0.1:6000";
 const MSG_SIZE: usize = 255;
+const SLEEP: u64 = 100;
 
 fn main() {
     let mut client = TcpStream::connect(LOCAL).expect("Stream failed to connect");
@@ -26,7 +27,7 @@ fn main() {
                         .take_while(|&x| x != 0)
                         .map(|n| n.into())
                         .collect::<Vec<char>>()
-                        .iter()
+                        .into_iter()
                         .collect();
                     if !msg.contains(local_addr.as_str()) {
                         println!("{:?}", msg);
@@ -49,7 +50,7 @@ fn main() {
                 Err(TryRecvError::Disconnected) => break,
             }
 
-            thread::sleep(Duration::from_millis(100));
+            thread::sleep(Duration::from_millis(SLEEP));
         }
     });
 
@@ -64,5 +65,5 @@ fn main() {
             break;
         }
     }
-    println!("bye bye!");
+    println!("Goodbye!");
 }
