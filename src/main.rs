@@ -1,15 +1,10 @@
-use std::io::{ErrorKind, Read, Write};
-use std::net::TcpListener;
-use std::sync::mpsc;
-use std::thread;
+use std::sync::Arc;
+use tokio::io::ErrorKind;
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::{Mutex, mpsc, mpsc::Receiver};
 
 const LOCAL: &str = "127.0.0.1:7070";
 const MSG_SIZE: usize = 255;
-const SLEEP: u64 = 100;
-
-fn sleep() {
-    thread::sleep(::std::time::Duration::from_millis(SLEEP));
-}
 
 struct User {
     nick_name: String,
@@ -46,76 +41,83 @@ fn process_command(command: &str, user: &mut User) {
     }
 }
 
-fn main() {
-    let server = TcpListener::bind(LOCAL).expect("Listener failed to bind");
-    server
-        .set_nonblocking(true)
-        .expect("failed to initialize non-blocking");
-
-    let mut clients = vec![];
-    let (tx, rx) = mpsc::channel::<String>();
+async fn handle_writes(mut rx: Receiver<String>, clients: Arc<Mutex<Vec<Arc<TcpStream>>>>) {
     loop {
-        if let Ok((mut socket, addr)) = server.accept() {
-            println!("Client {} connected", addr);
-
-            let tx = tx.clone();
-            clients.push(socket.try_clone().expect("failed to clone client"));
-
-            thread::spawn(move || {
-                let mut user = User::new(addr.to_string());
-                loop {
-                    let mut buff = vec![0; MSG_SIZE];
-
-                    match socket.read(&mut buff) {
-                        Ok(_) => {
-                            let msg =
-                                String::from_utf8(buff.into_iter().filter(|n| *n != 0).collect())
-                                    .expect("Invalid utf8 message");
-                            match msg.trim() {
-                                "" => (),
-                                n if n.starts_with(":") => process_command(n, &mut user),
-                                _ => {
-                                    let msg = format!("{}: {}", user.nick_name, msg);
-                                    let msg = msg.replace('"', "");
-                                    tx.send(msg).expect("failed to send msg to rx");
-                                }
-                            }
-                            if !user.is_active {
-                                println!("closing connection with: {}", addr);
-                                match socket.shutdown(std::net::Shutdown::Both) {
-                                    Ok(_) => println!("Connection shut down"),
-                                    Err(_) => println!("Failed to cleanly shut down connection"),
-                                }
-                                break;
-                            }
-                        }
-                        // This error is ignored because it's really just a real-time
-                        // warning saying that nothing is available at the moement, so
-                        // skipping this polling attempt.
-                        Err(ref err) if err.kind() == ErrorKind::WouldBlock => (),
-                        Err(_) => {
-                            println!("closing connection with: {}", addr);
-                            break;
-                        }
-                    }
-
-                    sleep();
-                }
-            });
+        if let Some(msg) = rx.recv().await {
+            for client in clients.lock().await.iter() {
+                let mut buff = msg.clone().into_bytes();
+                buff.resize(MSG_SIZE, 0);
+                client.try_write(&buff).expect("Failed to write");
+            }
         }
+    }
+}
 
-        if let Ok(msg) = rx.try_recv() {
-            clients = clients
-                .into_iter()
-                .filter_map(|mut client| {
-                    let mut buff = msg.clone().into_bytes();
-                    buff.resize(MSG_SIZE, 0);
+async fn handle_client(socket: Arc<TcpStream>, tx: mpsc::Sender<String>, addr: String) {
+    let mut user = User::new(addr);
+    let mut buff = vec![0; MSG_SIZE];
 
-                    client.write_all(&buff).map(|_| client).ok()
-                })
-                .collect::<Vec<_>>();
+    loop {
+        // Blocks until socket has something to read
+        socket.readable().await.expect("Failed to check socket");
+
+        // Assing the result of trying to get a utf8 string from the buffer to msg
+        let msg = match socket.try_read(&mut buff) {
+            Ok(_) => String::from_utf8(buff.iter().filter(|n| **n != 0).copied().collect()),
+            Err(ref err) if err.kind() == ErrorKind::WouldBlock => continue,
+            Err(_) => {
+                eprintln!("closing connection with: {}", user.nick_name);
+                break;
+            }
+        };
+
+        // Assign the utf8 value to msg or print the error and continue
+        let msg = match msg {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("{e}");
+                continue;
+            }
+        };
+
+        // if the contents of msg match the command string run process_command
+        match msg.trim() {
+            n if n.starts_with(":") => process_command(n, &mut user),
+            "" => continue,
+            _ => {
+                let msg = format!("{}: {}", user.nick_name, msg);
+                let msg = msg.replace('"', "");
+                tx.send(msg).await.expect("Failed to write message");
+            }
+        };
+
+        if !user.is_active {
+            println!("closing connection with: {}", user.nick_name);
+            break;
         }
+    }
+}
 
-        sleep();
+#[tokio::main]
+async fn main() {
+    let server = TcpListener::bind(LOCAL)
+        .await
+        .expect("Listener failed to bind");
+
+    let clients = Arc::new(Mutex::new(Vec::new()));
+    let (tx, rx) = mpsc::channel::<String>(32);
+
+    tokio::spawn(handle_writes(rx, clients.clone()));
+
+    loop {
+        if let Ok((socket, addr)) = server.accept().await {
+            let addr = addr.to_string();
+            println!("Client {addr} connected");
+
+            let socket = Arc::new(socket);
+            clients.lock().await.push(Arc::clone(&socket));
+
+            tokio::spawn(handle_client(socket, tx.clone(), addr));
+        }
     }
 }
