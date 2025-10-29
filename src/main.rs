@@ -24,7 +24,7 @@ impl User {
     }
 }
 
-fn process_command(command: &str, user: &mut User) {
+fn process_command(command: &str, user: &mut User) -> Result<(), String> {
     let command: Vec<&str> = command.split_whitespace().collect();
     if let Some(c) = command.first() {
         match *c {
@@ -39,62 +39,79 @@ fn process_command(command: &str, user: &mut User) {
             _ => (),
         }
     }
+    Ok(())
 }
 
 async fn handle_writes(mut rx: Receiver<String>, clients: Arc<Mutex<Vec<Arc<TcpStream>>>>) {
     loop {
-        if let Some(msg) = rx.recv().await {
-            for client in clients.lock().await.iter() {
-                let mut buff = msg.clone().into_bytes();
+        let mut clients_to_remove = Vec::new();
+        if let Some(message) = rx.recv().await {
+            for (index, client) in clients.lock().await.iter().enumerate() {
+                let mut buff = message.clone().into_bytes();
                 buff.resize(MSG_SIZE, 0);
-                client.try_write(&buff).expect("Failed to write");
+                if client.try_write(&buff).is_err() {
+                    eprintln!("Failed to write");
+                    clients_to_remove.push(index);
+                }
             }
+        }
+        let mut guard = clients.lock().await;
+        for index in clients_to_remove {
+            guard.remove(index);
         }
     }
 }
 
-async fn handle_client(socket: Arc<TcpStream>, tx: mpsc::Sender<String>, addr: String) {
+async fn handle_client(
+    socket: Arc<TcpStream>,
+    tx: mpsc::Sender<String>,
+    addr: String,
+) -> Result<(), String> {
     let mut user = User::new(addr);
-    let mut buff = vec![0; MSG_SIZE];
+    let mut buffer = vec![0; MSG_SIZE];
 
-    loop {
+    while user.is_active {
         // Blocks until socket has something to read
         socket.readable().await.expect("Failed to check socket");
-
-        // Assing the result of trying to get a utf8 string from the buffer to msg
-        let msg = match socket.try_read(&mut buff) {
-            Ok(_) => String::from_utf8(buff.iter().filter(|n| **n != 0).copied().collect()),
+        let message = match socket.try_read(&mut buffer) {
+            Ok(_) => get_message_from_buffer(&buffer)?,
             Err(ref err) if err.kind() == ErrorKind::WouldBlock => continue,
             Err(_) => {
-                eprintln!("closing connection with: {}", user.nick_name);
-                break;
-            }
-        };
-
-        // Assign the utf8 value to msg or print the error and continue
-        let msg = match msg {
-            Ok(m) => m,
-            Err(e) => {
-                eprintln!("{e}");
-                continue;
+                let error = format!("closing connection with: {}", user.nick_name);
+                eprintln!("{error}");
+                return Err(error);
             }
         };
 
         // if the contents of msg match the command string run process_command
-        match msg.trim() {
-            n if n.starts_with(":") => process_command(n, &mut user),
+        match message.trim() {
+            n if n.starts_with(":") => process_command(n, &mut user)?,
             "" => continue,
-            _ => {
-                let msg = format!("{}: {}", user.nick_name, msg);
-                let msg = msg.replace('"', "");
-                tx.send(msg).await.expect("Failed to write message");
-            }
+            _ => send_message(message, &user, &tx).await?,
         };
+    }
+    println!("closing connection with: {}", user.nick_name);
+    Ok(())
+}
 
-        if !user.is_active {
-            println!("closing connection with: {}", user.nick_name);
-            break;
-        }
+async fn send_message(
+    message: String,
+    user: &User,
+    tx: &mpsc::Sender<String>,
+) -> Result<(), String> {
+    let message = format!("{}: {}", user.nick_name, message);
+    let message = message.replace('"', "");
+    if tx.send(message).await.is_err() {
+        eprintln!("closing connection with: {}", user.nick_name);
+        return Err(String::from("Failed to write message"));
+    }
+    Ok(())
+}
+
+fn get_message_from_buffer(buffer: &[u8]) -> Result<String, String> {
+    match String::from_utf8(buffer.iter().filter(|n| **n != 0).copied().collect()) {
+        Ok(s) => Ok(s),
+        Err(e) => Err(e.to_string()),
     }
 }
 
@@ -107,7 +124,7 @@ async fn main() {
     let clients = Arc::new(Mutex::new(Vec::new()));
     let (tx, rx) = mpsc::channel::<String>(32);
 
-    tokio::spawn(handle_writes(rx, clients.clone()));
+    tokio::spawn(handle_writes(rx, Arc::clone(&clients)));
 
     loop {
         if let Ok((socket, addr)) = server.accept().await {
@@ -116,7 +133,6 @@ async fn main() {
 
             let socket = Arc::new(socket);
             clients.lock().await.push(Arc::clone(&socket));
-
             tokio::spawn(handle_client(socket, tx.clone(), addr));
         }
     }
