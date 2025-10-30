@@ -95,7 +95,7 @@ async fn handle_client(
             Ok(_) => get_message_from_buffer(&buffer),
             Err(ref err) if err.kind() == ErrorKind::WouldBlock => continue,
             Err(e) => {
-                eprintln!("{}", e.to_string());
+                eprintln!("{e}");
                 break;
             }
         };
