@@ -1,26 +1,47 @@
-use std::sync::Arc;
+use tokio::sync::Mutex;
 use chrono::{DateTime, Utc};
 use tokio::net::TcpStream;
 
 pub struct User {
-    pub socket: Option<Arc<&'static TcpStream>>,
-    pub nickname: Option<String>,
-    pub address: String
+    pub socket: Option<TcpStream>,
+    pub nickname: Mutex<Option<String>>,
+    pub address: String,
+    pub is_active: bool
 }
 impl User {
-    pub fn new_from_server(tcp_stream: Arc<&'static TcpStream>, address: String) -> Self {
+    pub fn from(tcp_stream: TcpStream, address: Option<String>) -> Self {
+        let address = match address {
+            Some(address) => address,
+            None => tcp_stream.local_addr().unwrap().to_string()
+        };
+
         Self {
             socket: Some(tcp_stream),
-            nickname: None,
-            address
+            nickname: Mutex::new(None),
+            address,
+            is_active: true
         }
     }
 
-    pub fn new_from_client(address: String) -> Self {
-        Self {
-            socket: None,
-            nickname: None,
-            address
+    pub async fn get_display_name(&self) -> String {
+        let nick_guard = self.nickname.lock().await;
+
+        match &*nick_guard {
+            Some(nick_name) => nick_name.clone(),
+            None => self.address.clone()
+        }
+    }
+
+    pub fn disconnect(&mut self) {
+        self.is_active = false;
+    }
+
+    pub async fn set_nickname(&mut self, new_name: Option<String>) {
+        let mut nick_guard = self.nickname.lock().await;
+
+        match new_name {
+            Some(string) => *nick_guard = Some(string),
+            None => *nick_guard = None
         }
     }
 }
