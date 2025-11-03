@@ -1,0 +1,5 @@
+[general]
+host_ip = "127.0.0.1"
+host_port = "7070"
+msg_size = 255
+prefix = ":"

@@ -1,4 +1,5 @@
-use std::io;
+use std::env::args;
+use std::{io, process};
 use std::sync::Arc;
 use std::thread::sleep;
 use std::time::Duration;
@@ -7,6 +8,7 @@ use tokio::net::TcpStream;
 use tokio::spawn;
 use tokio::sync::Mutex;
 use tokio::sync::mpsc::{self, Receiver, Sender};
+use chat_shared::handles::{CliHandle, ConfigHandle};
 
 // Define a constant for our connection address
 // should maybe go in a config file
@@ -46,11 +48,11 @@ async fn read_and_send(tx: Sender<String>, user: Arc<Mutex<String>>) {
             .await
             .expect("Couldn't set nickname");
     }
-    // Create a bufffer to control our loop and to collect
+    // Create a buffer to control our loop and to collect
     // the message to send
     let mut buff = String::new();
 
-    // Loop until we choos to quit
+    // Loop until we choose to quit
     while buff.trim() != ":quit" {
         buff = String::new();
         io::stdin()
@@ -107,29 +109,46 @@ async fn send_to_server(mut rx: Receiver<String>, client: Arc<TcpStream>) {
 
 #[tokio::main]
 async fn main() {
-    let user = get_name_from_args().expect("{e}");
+    let cli_handle = CliHandle::new(args());
+    let config_handle = match cli_handle.config {
+        Some(config) => ConfigHandle::new(Some(config)),
+        None => ConfigHandle::new(None)
+    };
 
-    // Open our stream or die trying
-    let client = TcpStream::connect(LOCAL)
-        .await
-        .expect("Stream failed to connect");
-    // Put our stream in a shareable smart pointer
-    let client = Arc::new(client);
-    let user = Arc::new(Mutex::new(user));
+    let config_handle = match config_handle {
+        Ok(config_handle) => config_handle,
+        Err(e) => {
+            eprintln!("{}", e);
+            process::exit(1);
+        }
+    };
+
+    println!("{:?}", config_handle.options)
+
+
+    // let user = get_name_from_args().expect("{e}");
     //
-    // Open our thread communication channels
-    let (tx, rx) = mpsc::channel::<String>(32);
-
-    // spawn off our routine that sends messags to the server
-    spawn(send_to_server(rx, Arc::clone(&client)));
-    // spawn off our routine that gets messages from the server
-    spawn(get_message_from_server(
-        Arc::clone(&client),
-        Arc::clone(&user),
-    ));
-
-    println!("Welcome to chat!!!!");
-    // Start our routine that gets a message from stdin and sends to the send_to_server thread
-    read_and_send(tx.clone(), Arc::clone(&user)).await;
-    sleep(Duration::new(0, 100));
+    // // Open our stream or die trying
+    // let client = TcpStream::connect(LOCAL)
+    //     .await
+    //     .expect("Stream failed to connect");
+    // // Put our stream in a shareable smart pointer
+    // let client = Arc::new(client);
+    // let user = Arc::new(Mutex::new(user));
+    // //
+    // // Open our thread communication channels
+    // let (tx, rx) = mpsc::channel::<String>(32);
+    //
+    // // spawn off our routine that sends messags to the server
+    // spawn(send_to_server(rx, Arc::clone(&client)));
+    // // spawn off our routine that gets messages from the server
+    // spawn(get_message_from_server(
+    //     Arc::clone(&client),
+    //     Arc::clone(&user),
+    // ));
+    //
+    // println!("Welcome to chat!!!!");
+    // // Start our routine that gets a message from stdin and sends to the send_to_server thread
+    // read_and_send(tx.clone(), Arc::clone(&user)).await;
+    // sleep(Duration::new(0, 100));
 }

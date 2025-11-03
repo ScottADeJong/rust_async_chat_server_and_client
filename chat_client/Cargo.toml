@@ -1,7 +1,9 @@
 [package]
 name = "chat_client"
-version = "0.1.0"
+version = "1.0.0-dev"
 edition = "2024"
+authors = [ "Scott Dejong", "Nathaniel C. Moratto" ]
 
 [dependencies]
 tokio = { version = "1.8.0", features = ["rt-multi-thread", "macros", "net", "sync", "signal"]}
+chat_shared = { path = "../chat_shared"  }

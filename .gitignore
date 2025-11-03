@@ -1,1 +1,7 @@
-**/targetIcon*/Iconconfig.toml.idea/
+**/target
+Icon
+*/Icon
+
+config.toml
+Cargo.lock
+.idea/
