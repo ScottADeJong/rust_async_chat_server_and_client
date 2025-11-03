@@ -1,5 +1,6 @@
 use std::env::args;
 use std::{io, process};
+use std::fmt::format;
 use std::sync::Arc;
 use std::thread::sleep;
 use std::time::Duration;
@@ -9,6 +10,7 @@ use tokio::spawn;
 use tokio::sync::Mutex;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use chat_shared::handles::{CliHandle, ConfigHandle};
+use chat_shared::objects::User;
 
 // Define a constant for our connection address
 // should maybe go in a config file
@@ -123,32 +125,30 @@ async fn main() {
         }
     };
 
-    println!("{:?}", config_handle.options)
+    let user = get_name_from_args().expect("{e}");
 
+    // Open our stream or die trying
+    let client = TcpStream::connect(format!("{}:{}", config_handle.options.get("host_ip").unwrap(), config_handle.options.get("host_port").unwrap()))
+        .await
+        .expect("Stream failed to connect");
 
-    // let user = get_name_from_args().expect("{e}");
-    //
-    // // Open our stream or die trying
-    // let client = TcpStream::connect(LOCAL)
-    //     .await
-    //     .expect("Stream failed to connect");
-    // // Put our stream in a shareable smart pointer
-    // let client = Arc::new(client);
-    // let user = Arc::new(Mutex::new(user));
-    // //
-    // // Open our thread communication channels
-    // let (tx, rx) = mpsc::channel::<String>(32);
-    //
-    // // spawn off our routine that sends messags to the server
-    // spawn(send_to_server(rx, Arc::clone(&client)));
-    // // spawn off our routine that gets messages from the server
-    // spawn(get_message_from_server(
-    //     Arc::clone(&client),
-    //     Arc::clone(&user),
-    // ));
-    //
-    // println!("Welcome to chat!!!!");
-    // // Start our routine that gets a message from stdin and sends to the send_to_server thread
-    // read_and_send(tx.clone(), Arc::clone(&user)).await;
-    // sleep(Duration::new(0, 100));
+    let user = User::new_from_server(Arc::new(&client), client.local_addr().unwrap().to_string());
+
+    // Put our stream in a shareable smart pointer
+    let client = Arc::new(user);
+    
+    // Open our thread communication channels
+    let (tx, rx) = mpsc::channel::<String>(32);
+
+    // spawn off our routine that sends messags to the server
+    spawn(send_to_server(rx, Arc::clone(&client)));
+    // spawn off our routine that gets messages from the server
+    spawn(get_message_from_server(
+        Arc::clone(&client),
+        Arc::clone(&user),
+    ));
+
+    println!("Welcome to chat!!!!");
+    // Start our routine that gets a message from stdin and sends to the send_to_server thread
+    read_and_send(tx.clone(), Arc::clone(&user)).await;
 }
