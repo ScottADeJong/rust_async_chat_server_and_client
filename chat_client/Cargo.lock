@@ -6,8 +6,13 @@ version = 4
 name = "chat_client"
 version = "0.1.0"
 dependencies = [
+ "chat_shared",
  "tokio",
 ]
+
+[[package]]
+name = "chat_shared"
+version = "0.1.0"
 
 [[package]]
 name = "libc"
