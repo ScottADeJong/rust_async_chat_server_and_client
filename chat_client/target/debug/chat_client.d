@@ -1,1 +1,0 @@
-/Users/dejongs/workspace/rust_async_chat_server_and_client/chat_client/target/debug/chat_client: /Users/dejongs/workspace/rust_async_chat_server_and_client/chat_client/src/main.rs /Users/dejongs/workspace/rust_async_chat_server_and_client/chat_shared/src/lib.rs
