@@ -153,11 +153,11 @@ async fn send_message(
     user: &mut MutexGuard<'_, User>,
     tx: &mpsc::Sender<String>,
 ) -> Result<(), String> {
-    let message = format!("{}: {}", user.get_display_name().await, message);
+    let message = format!("{}: {}", user.get_display_name(), message);
     let message = message.replace('"', "");
     println!("sending: {}", message);
     if tx.send(message).await.is_err() {
-        eprintln!("closing connection with: {}", user.get_display_name().await);
+        eprintln!("closing connection with: {}", user.get_display_name());
         return Err(String::from("Failed to write message"));
     }
     Ok(())

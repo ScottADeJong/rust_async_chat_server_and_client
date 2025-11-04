@@ -18,7 +18,7 @@ async fn get_and_print_message(buffer: Vec<u8>, user: &Arc<Mutex<User>>) {
     // Translate the vec to a utf8 string
     let message = String::from_utf8(message).expect("Invalid utf8 message");
     // If the message is not empty and is not sent by us, print it
-    let display_name = user.lock().await.get_display_name().await;
+    let display_name = user.lock().await.get_display_name();
     println!("<---{}", message);
     if !message.is_empty() && !message.starts_with(format!("{}: ", display_name).as_str()) {
         println!("--->{}", message);
@@ -43,7 +43,7 @@ async fn read_and_send(tx: Sender<String>, user: Arc<Mutex<User>>) {
         if buff.contains(":name ") {
             let mut user_guard = user.lock().await;
             user_guard.set_nickname(Some(buff.split_whitespace().nth(1).unwrap().to_string())).await;
-            buff = format!(":name {}", user_guard.get_display_name().await);
+            buff = format!(":name {}", user_guard.get_display_name());
         }
 
         println!("sending to tx: {}", buff);
@@ -55,13 +55,7 @@ async fn read_and_send(tx: Sender<String>, user: Arc<Mutex<User>>) {
 async fn get_message_from_server(config_handle: Arc<ConfigHandle>, user: Arc<Mutex<User>>) {
     loop {
         // Check if the socket is readable
-        {
-            let user_guard = user.lock().await;
-            let socket = user_guard.socket.as_ref().unwrap();
-            if socket.readable().await.is_err() {
-                break;
-            }
-        }
+
 
         // Read from the socket
         let mut buffer = vec![0; config_handle.get_value_usize("msg_size").unwrap()];
@@ -90,7 +84,9 @@ async fn get_message_from_server(config_handle: Arc<ConfigHandle>, user: Arc<Mut
 // check the receiver and if we have data, try to write it to the
 // stream
 async fn send_to_server(config_handle: Arc<ConfigHandle>, mut rx: Receiver<String>, user: Arc<Mutex<User>>) {
+    println!("Starting send_to_server thread");
     while let Some(message) = rx.recv().await {
+        println!("Receiver received: {}", message);
         let mut buff = message.into_bytes();
         buff.resize(config_handle.get_value_usize("msg_size").unwrap(), 0);
         let user_guard = user.lock().await;

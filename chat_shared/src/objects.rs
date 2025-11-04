@@ -23,7 +23,7 @@ impl User {
         }
     }
 
-    pub async fn get_display_name(&self) -> String {
+    pub fn get_display_name(&self) -> String {
         match &self.nickname {
             Some(nick_name) => nick_name.clone(),
             None => self.address.clone()
