@@ -2,31 +2,24 @@ use std::env::args;
 use std::{io, process};
 use std::sync::Arc;
 use tokio::io::ErrorKind;
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpStream;
 use tokio::spawn;
+use tokio::sync::Mutex;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use chat_shared::handles::{CliHandle, ConfigHandle};
 use chat_shared::objects::User;
 
-// Get the user nickname from the command line
-fn get_name_from_args() -> Result<String, String> {
-    let args: Vec<String> = std::env::args().collect();
-    match args.get(1) {
-        Some(s) => Ok(s.to_string()),
-        None => {
-            let error = format!("usage: {} user_name", args[0]);
-            Err(error)
-        }
-    }
-}
+
 // Helper function to translate the buffer to utf8 and print to the console
-async fn get_and_print_message(buffer: Vec<u8>, user: &Arc<User>) {
+async fn get_and_print_message(buffer: Vec<u8>, user: &Arc<Mutex<User>>) {
+    println!("Got message: {:?}", &buffer);
     // Translate buffer to a vec
     let message: Vec<u8> = buffer.into_iter().filter(|n| *n != 0).collect();
     // Translate the vec to a utf8 string
     let message = String::from_utf8(message).expect("Invalid utf8 message");
     // If the message is not empty and is not sent by us, print it
-    let display_name = user.get_display_name().await;
+    let display_name = user.lock().await.get_display_name().await;
+    println!("<---{}", message);
     if !message.is_empty() && !message.starts_with(format!("{}: ", display_name).as_str()) {
         println!("--->{}", message);
     }
@@ -34,7 +27,7 @@ async fn get_and_print_message(buffer: Vec<u8>, user: &Arc<User>) {
 
 // This function handles getting information from
 // stdin and sending it to the server
-async fn read_and_send(tx: Sender<String>, user: Arc<User>) {
+async fn read_and_send(tx: Sender<String>, user: Arc<Mutex<User>>) {
     // Create a buffer to control our loop and to collect
     // the message to send
     let mut buff = String::new();
@@ -48,29 +41,37 @@ async fn read_and_send(tx: Sender<String>, user: Arc<User>) {
 
         let mut buff = buff.trim().to_string();
         if buff.contains(":name ") {
-            let mut user = user.nickname.lock().await;
-            *user = Some(buff
-                .split_whitespace()
-                .map(|x| x.to_string())
-                .skip(1)
-                .collect::<Vec<_>>()
-                .join(" "));
-            buff = format!(":name {}", user.clone().unwrap());
+            let mut user_guard = user.lock().await;
+            user_guard.set_nickname(Some(buff.split_whitespace().nth(1).unwrap().to_string())).await;
+            buff = format!(":name {}", user_guard.get_display_name().await);
         }
 
+        println!("sending to tx: {}", buff);
         // Send to our receiver thread
         tx.send(buff).await.expect("Couldn't send the message");
     }
 }
 
-async fn get_message_from_server(config_handle: Arc<ConfigHandle>, user: Arc<User>) {
-    // Get a reference to the socket
-    let socket = user.socket.as_ref().unwrap();
+async fn get_message_from_server(config_handle: Arc<ConfigHandle>, user: Arc<Mutex<User>>) {
+    loop {
+        // Check if the socket is readable
+        {
+            let user_guard = user.lock().await;
+            let socket = user_guard.socket.as_ref().unwrap();
+            if socket.readable().await.is_err() {
+                break;
+            }
+        }
 
-    // Loop until the client is no longer readable/connected
-    while socket.readable().await.is_ok() {
+        // Read from the socket
         let mut buffer = vec![0; config_handle.get_value_usize("msg_size").unwrap()];
-        match socket.try_read(&mut buffer) {
+        let read_result = {
+            let user_guard = user.lock().await;
+            let socket = user_guard.socket.as_ref().unwrap();
+            socket.try_read(&mut buffer)
+        };
+
+        match read_result {
             // Skip zero length buffer
             Ok(0) => continue,
             Ok(_) => get_and_print_message(buffer, &user).await,
@@ -88,11 +89,13 @@ async fn get_message_from_server(config_handle: Arc<ConfigHandle>, user: Arc<Use
 
 // check the receiver and if we have data, try to write it to the
 // stream
-async fn send_to_server(config_handle: Arc<ConfigHandle>, mut rx: Receiver<String>, client: Arc<User>) {
+async fn send_to_server(config_handle: Arc<ConfigHandle>, mut rx: Receiver<String>, user: Arc<Mutex<User>>) {
     while let Some(message) = rx.recv().await {
         let mut buff = message.into_bytes();
         buff.resize(config_handle.get_value_usize("msg_size").unwrap(), 0);
-        let socket = client.socket.as_ref().unwrap();
+        let user_guard = user.lock().await;
+        let socket = user_guard.socket.as_ref().unwrap();
+        println!("Sending to socket: {:?}", &buff);
         socket.writable().await.expect("Could not check writable");
         socket.try_write(&buff).expect("writing to socket failed");
     }
@@ -117,17 +120,13 @@ async fn main() {
     let address = format!("{}:{}",
                           config_handle.get_value_string("host_ip").unwrap(),
                           config_handle.get_value_string("host_port").unwrap()).replace('"', "");
+
     // Open our stream or die trying
     let client = TcpStream::connect(address)
         .await
         .expect("Stream failed to connect");
 
-    let user = Arc::new(User::from(client, None));
-
-    if user.socket.is_none() {
-        eprintln!("Socket was not set");
-        process::exit(1);
-    }
+    let user = Arc::new(Mutex::new(User::from(client, None)));
 
     // Open our thread communication channels
     let (tx, rx) = mpsc::channel::<String>(32);

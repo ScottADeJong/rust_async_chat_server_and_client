@@ -4,7 +4,7 @@ use tokio::net::TcpStream;
 
 pub struct User {
     pub socket: Option<TcpStream>,
-    pub nickname: Mutex<Option<String>>,
+    pub nickname: Option<String>,
     pub address: String,
     pub is_active: bool
 }
@@ -17,16 +17,14 @@ impl User {
 
         Self {
             socket: Some(tcp_stream),
-            nickname: Mutex::new(None),
+            nickname: None,
             address,
             is_active: true
         }
     }
 
     pub async fn get_display_name(&self) -> String {
-        let nick_guard = self.nickname.lock().await;
-
-        match &*nick_guard {
+        match &self.nickname {
             Some(nick_name) => nick_name.clone(),
             None => self.address.clone()
         }
@@ -37,11 +35,9 @@ impl User {
     }
 
     pub async fn set_nickname(&mut self, new_name: Option<String>) {
-        let mut nick_guard = self.nickname.lock().await;
-
         match new_name {
-            Some(string) => *nick_guard = Some(string),
-            None => *nick_guard = None
+            Some(string) => self.nickname = Some(string),
+            None => self.nickname = None
         }
     }
 }

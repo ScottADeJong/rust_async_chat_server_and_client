@@ -2,7 +2,7 @@ use std::env::args;
 use std::process;
 use std::sync::Arc;
 use tokio::io::ErrorKind;
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpListener;
 use tokio::sync::{Mutex, mpsc, mpsc::Receiver, MutexGuard};
 use chat_shared::handles::{CliHandle, ConfigHandle};
 use chat_shared::objects::User;
@@ -13,12 +13,15 @@ type Clients = Arc<Mutex<Vec<Arc<Mutex<User>>>>>;
 // Get's a message from the buffer
 fn get_message_from_buffer(buffer: &[u8]) -> Result<String, String> {
     match String::from_utf8(buffer.iter().filter(|n| **n != 0).copied().collect()) {
-        Ok(s) => Ok(s),
+        Ok(s) => {
+            println!("Got message: {}", s);
+            Ok(s)
+        },
         Err(e) => Err(e.to_string()),
     }
 }
 
-// Process a command string that is sent from the client
+// Process a command string sent from the client
 // Currently only returns OK, but error handling should be added
 async fn process_command(command: &str, user: &mut MutexGuard<'_, User>) -> Result<(), String> {
     let args: Vec<&str> = command.split_whitespace().collect();
@@ -51,6 +54,7 @@ async fn handle_writes(config_handle: Arc<ConfigHandle>, mut rx: Receiver<String
     // Exit if our receiver is closed
     println!("Starting handle_writes thread");
     while let Some(message) = rx.recv().await {
+        println!("Received Message: {message}");
         let guard = clients.lock().await;
         for client in guard.iter() {
             let mut buff = message.clone().into_bytes();
@@ -58,6 +62,7 @@ async fn handle_writes(config_handle: Arc<ConfigHandle>, mut rx: Receiver<String
 
             let mut user_guard = client.lock().await;
             if let Some(socket) = &mut user_guard.socket {
+                println!("sending: {:?}", &buff);
                 if socket.try_write(&buff).is_err() {
                     continue
                 }
@@ -68,7 +73,7 @@ async fn handle_writes(config_handle: Arc<ConfigHandle>, mut rx: Receiver<String
 }
 
 // Read messages from our client, parse them and where appropriate
-// put send the to the writer thread
+// put send to the writer thread
 async fn handle_client(
     config_handle: Arc<ConfigHandle>,
     user: Arc<Mutex<User>>,
@@ -78,7 +83,6 @@ async fn handle_client(
     {
         println!("Starting thread for {}", user.lock().await.address);
     }
-
 
     let mut buffer = vec![0; config_handle.get_value_usize("msg_size").unwrap()];
 
@@ -107,7 +111,7 @@ async fn handle_client(
             }
         };
 
-        // if the contents of msg match the command string run process_command
+        // if the contents of msg match the command string, run process_command
         let message_result = match message.trim() {
             n if n.starts_with(":") => process_command(n, &mut user).await,
             "" => continue,
@@ -151,6 +155,7 @@ async fn send_message(
 ) -> Result<(), String> {
     let message = format!("{}: {}", user.get_display_name().await, message);
     let message = message.replace('"', "");
+    println!("sending: {}", message);
     if tx.send(message).await.is_err() {
         eprintln!("closing connection with: {}", user.get_display_name().await);
         return Err(String::from("Failed to write message"));
