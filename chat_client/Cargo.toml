@@ -2,7 +2,7 @@
 name = "chat_client"
 version = "1.0.0-dev"
 edition = "2024"
-authors = [ "Scott Dejong", "Nathaniel C. Moratto" ]
+authors = [ "Scott DeJong", "Nathaniel C. Moratto" ]
 
 [dependencies]
 tokio = { version = "1.8.0", features = ["rt-multi-thread", "macros", "net", "sync", "signal"]}
