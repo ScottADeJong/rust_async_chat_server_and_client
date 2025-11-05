@@ -5,7 +5,7 @@ use std::path::Path;
 use crate::ConfigError;
 use serde::{Deserialize, Serialize};
 
-const DEFAULT_CONFIG_FILE: &str = "../env/config.toml";
+const DEFAULT_CONFIG_FILE: &str = "../env/config.ron";
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Config {
@@ -34,7 +34,6 @@ impl Config {
     }
 
     pub fn from_file(config_file: Option<&Path>) -> Result<Self, ConfigError> {
-
         let config_file = config_file.unwrap_or_else(|| {
             Path::new(DEFAULT_CONFIG_FILE)
         });
@@ -44,7 +43,7 @@ impl Config {
 
         file.read_to_string(&mut contents).map_err(|_| ConfigError::ConfigReadFailed)?;
 
-        ron::from_str(&contents).map_err(|_| ConfigError::ConfigParseFailed)?
+        ron::from_str::<Config>(&contents).map_err(|_| ConfigError::ConfigParseFailed)
     }
     
     pub fn validate(&self) -> Result<(), ConfigError> {
