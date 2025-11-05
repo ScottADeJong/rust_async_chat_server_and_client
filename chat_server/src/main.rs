@@ -175,9 +175,11 @@ async fn main() {
                       config_handle.get_value_string("host_ip").unwrap(),
                       config_handle.get_value_string("host_port").unwrap()).replace('"', "");
     // Set up our listener or die trying
-    let server = TcpListener::bind(address)
+    let server = TcpListener::bind(&address)
         .await
         .expect("Listener failed to bind");
+
+    println!("Server is listening on {}!", address);
 
     // Create our list of clients Needs to be Arc of Mutex of Arcs
     // so that the sent trait is respected throughout
