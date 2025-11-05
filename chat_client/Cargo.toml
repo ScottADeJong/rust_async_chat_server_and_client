@@ -6,4 +6,4 @@ authors = [ "Scott DeJong", "Nathaniel C. Moratto" ]
 
 [dependencies]
 tokio = { version = "1.8.0", features = ["rt-multi-thread", "macros", "net", "sync", "signal"]}
-chat_shared = { path = "../chat_shared"  }
+chat_shared = {version = "1.0.0-dev", path = "../chat_shared"}
