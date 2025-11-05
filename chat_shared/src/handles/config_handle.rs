@@ -1,7 +1,18 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
+use std::net::{Ipv4Addr, Ipv6Addr};
 use crate::ConfigError;
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Config {
+    pub host_ipv4: Option<Ipv4Addr>,
+    pub host_ipv6: Option<Ipv6Addr>,
+    pub host_port: usize,
+    pub msg_size: usize,
+    pub prefix: String,
+}
 
 const DEFAULT_CONFIG_FILE: &str = "../env/config.toml";
 const DEFAULT_CONFIG_KEYS: [&str; 4] = ["host_ip", "host_port", "msg_size", "prefix"];
