@@ -1,5 +1,3 @@
-use chat_shared::handles::{CliHandle, ConfigHandle};
-use chat_shared::objects::User;
 use std::env::args;
 use std::sync::Arc;
 use std::thread::sleep;
@@ -103,6 +101,16 @@ async fn main() {
         }
     };
 
+    match config.validate() {
+        Ok(_) => (),
+        Err(e) => {
+            eprintln!("{e}");
+            process::exit(1);
+        }
+    }
+
+    let config = Arc::new(config);
+
     let address = format!(
         "{}:{}",
         config.get_ip(),
@@ -121,7 +129,6 @@ async fn main() {
     let (tx, rx) = mpsc::channel::<String>(32);
 
     // spawn off our routine that sends messages to the server
-    spawn(send_to_server(Arc::clone(&config), rx, Arc::clone(&user)));
     spawn(send_to_server(
         Arc::clone(&config),
         rx,
