@@ -3,7 +3,8 @@ use std::process;
 use std::sync::Arc;
 use tokio::io::ErrorKind;
 use tokio::net::TcpListener;
-use tokio::sync::{Mutex, mpsc, mpsc::Receiver, MutexGuard};
+use tokio::sync::Mutex;
+use tokio::sync::mpsc::{Sender, Receiver, channel};
 use chat_shared::handles::{CliHandle, ConfigHandle};
 use chat_shared::objects::User;
 
@@ -54,10 +55,9 @@ async fn handle_writes(config_handle: Arc<ConfigHandle>, mut rx: Receiver<String
             let mut buff = message.clone().into_bytes();
             buff.resize(config_handle.get_value_usize("msg_size").unwrap(), 0);
 
-            if let Some(socket) = client.socket.as_ref() {
-                if socket.try_write(&buff).is_err() {
+            if let Some(socket) = client.socket.as_ref() &&
+                socket.try_write(&buff).is_err() {
                     continue
-                }
             }
         }
     }
@@ -68,7 +68,7 @@ async fn handle_writes(config_handle: Arc<ConfigHandle>, mut rx: Receiver<String
 async fn handle_client(
     config_handle: Arc<ConfigHandle>,
     user: Arc<User>,
-    tx: mpsc::Sender<String>,
+    tx: Sender<String>,
     clients: Clients
 ) {
     println!("Starting thread for {}", user.address);
@@ -141,7 +141,7 @@ async fn remove_client(clients: Clients, user: Arc<User>) {
 async fn send_message(
     message: String,
     user: &Arc<User>,
-    tx: &mpsc::Sender<String>,
+    tx: &Sender<String>,
 ) -> Result<(), String> {
     let message = format!("{}: {}", user.get_display_name().await, message);
     let message = message.replace('"', "");
@@ -183,7 +183,7 @@ async fn main() {
     // so that the sent trait is respected throughout
     let clients = Arc::new(Mutex::new(Vec::new()));
     // set up the sender and receiver for our threads
-    let (tx, rx) = mpsc::channel::<String>(32);
+    let (tx, rx) = channel::<String>(32);
 
     // spawn off our writer
     tokio::spawn(handle_writes(Arc::clone(&config_handle), rx, Arc::clone(&clients)));

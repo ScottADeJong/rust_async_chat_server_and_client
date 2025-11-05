@@ -4,7 +4,6 @@ use std::sync::Arc;
 use tokio::io::ErrorKind;
 use tokio::net::TcpStream;
 use tokio::spawn;
-use tokio::sync::Mutex;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use chat_shared::handles::{CliHandle, ConfigHandle};
 use chat_shared::objects::User;
@@ -25,7 +24,7 @@ async fn get_and_print_message(buffer: Vec<u8>, user: &Arc<User>) {
 
 // This function handles getting information from
 // stdin and sending it to the server
-async fn read_and_send(tx: Sender<String>, mut user: Arc<User>) {
+async fn read_and_send(tx: Sender<String>, user: Arc<User>) {
     // Create a buffer to control our loop and to collect
     // the message to send
     let mut buff = String::new();
