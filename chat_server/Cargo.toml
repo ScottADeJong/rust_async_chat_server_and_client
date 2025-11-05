@@ -1,8 +1,9 @@
 [package]
 name = "chat_server"
-version = "0.1.0"
+version = "1.0.0-dev"
 edition = "2024"
+authors = [ "Scott DeJong", "Nathaniel C. Moratto" ]
 
 [dependencies]
 tokio = { version = "1.8.0", features = ["rt-multi-thread", "macros", "net", "sync"]}
-chat_shared = {version = "0.1.0", path = "../chat_shared"}
+chat_shared = {version = "1.0.0-dev", path = "../chat_shared"}

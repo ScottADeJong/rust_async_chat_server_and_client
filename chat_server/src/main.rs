@@ -1,33 +1,15 @@
+use std::env::args;
+use std::process;
 use std::sync::Arc;
 use tokio::io::ErrorKind;
-use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{Mutex, mpsc, mpsc::Receiver};
-
-// constants for message size and network address
-const LOCAL: &str = "127.0.0.1:7070";
-const MSG_SIZE: usize = 255;
+use tokio::net::TcpListener;
+use tokio::sync::Mutex;
+use tokio::sync::mpsc::{Sender, Receiver, channel};
+use chat_shared::handles::{CliHandle, ConfigHandle};
+use chat_shared::objects::User;
 
 // define a type to make this easier to work with
-type Clients = Arc<Mutex<Vec<Arc<TcpStream>>>>;
-
-// Struct to hold the user information
-struct User {
-    nick_name: String,
-    is_active: bool,
-}
-
-impl User {
-    fn new(nick_name: String) -> Self {
-        Self {
-            nick_name,
-            is_active: true,
-        }
-    }
-
-    fn disconnect(&mut self) {
-        self.is_active = false;
-    }
-}
+type Clients = Arc<Mutex<Vec<Arc<User>>>>;
 
 // Get's a message from the buffer
 fn get_message_from_buffer(buffer: &[u8]) -> Result<String, String> {
@@ -37,17 +19,23 @@ fn get_message_from_buffer(buffer: &[u8]) -> Result<String, String> {
     }
 }
 
-// Process a command string that is sent from the client
+// Process a command string sent from the client
 // Currently only returns OK, but error handling should be added
-fn process_command(command: &str, user: &mut User) -> Result<(), String> {
-    let command: Vec<&str> = command.split_whitespace().collect();
-    if let Some(c) = command.first() {
+async fn process_command(command: &str, user: &Arc<User>) -> Result<(), String> {
+    let args: Vec<&str> = command.split_whitespace().collect();
+    if let Some(c) = args.first() {
+
         match *c {
-            ":quit" => user.disconnect(),
+            ":quit" => {
+                let mut is_active = user.is_active.lock().await;
+                *is_active = false;
+            },
             ":name" => {
-                user.nick_name = match command.get(1) {
-                    Some(n) => n.to_string(),
-                    None => String::from("unknown"),
+                let mut nickname = user.nickname.lock().await;
+
+                match args.len() {
+                    n if n <= 1 => *nickname = None,
+                    _ => *nickname = Some(args[1].to_string()),
                 }
             }
             // Should message user that the command was not recognized
@@ -59,39 +47,44 @@ fn process_command(command: &str, user: &mut User) -> Result<(), String> {
 
 // Handle the writing to the attached clients
 // Reads from the thread receiver and writes using the clients vec
-async fn handle_writes(mut rx: Receiver<String>, clients: Clients) {
+async fn handle_writes(config_handle: Arc<ConfigHandle>, mut rx: Receiver<String>, clients: Clients) {
     // Exit if our receiver is closed
-    println!("Starting handle_writes thread");
     while let Some(message) = rx.recv().await {
         let guard = clients.lock().await;
         for client in guard.iter() {
             let mut buff = message.clone().into_bytes();
-            buff.resize(MSG_SIZE, 0);
-            if client.try_write(&buff).is_err() {
-                break;
+            buff.resize(config_handle.get_value_usize("msg_size").unwrap(), 0);
+
+            if let Some(socket) = client.socket.as_ref() &&
+                socket.try_write(&buff).is_err() {
+                    continue
             }
         }
     }
-    println!("Ending handle_writes thread");
 }
 
 // Read messages from our client, parse them and where appropriate
-// put send the to the writer thread
+// put send to the writer thread
 async fn handle_client(
-    socket: Arc<TcpStream>,
-    tx: mpsc::Sender<String>,
-    addr: String,
-    clients: Clients,
+    config_handle: Arc<ConfigHandle>,
+    user: Arc<User>,
+    tx: Sender<String>,
+    clients: Clients
 ) {
-    println!("Starting thread for {addr}");
-    let mut user = User::new(addr.clone());
-    let mut buffer = vec![0; MSG_SIZE];
+    println!("Starting thread for {}", user.address);
+    let mut buffer = vec![0; config_handle.get_value_usize("msg_size").unwrap()];
 
-    // Exit when our user is made inactive
-    while user.is_active {
-        // Blocks until socket has something to read
+    loop {
+        {
+            let is_active = user.is_active.lock().await;
+            if !*is_active {
+                break;
+            }
+        }
+
+        let socket = user.socket.as_ref().unwrap();
         socket.readable().await.expect("Failed to check socket");
-        let message = match socket.try_read(&mut buffer) {
+        let message = match user.socket.as_ref().unwrap().try_read(&mut buffer) {
             Ok(_) => get_message_from_buffer(&buffer),
             Err(ref err) if err.kind() == ErrorKind::WouldBlock => continue,
             Err(e) => {
@@ -108,9 +101,11 @@ async fn handle_client(
             }
         };
 
-        // if the contents of msg match the command string run process_command
+        // if the contents of msg match the command string, run process_command
         let message_result = match message.trim() {
-            n if n.starts_with(":") => process_command(n, &mut user),
+            n if n.starts_with(":") => {
+                process_command(n, &user).await
+            },
             "" => continue,
             _ => send_message(message, &user, &tx).await,
         };
@@ -123,16 +118,16 @@ async fn handle_client(
 
     // if we get here, indicate we are closing the connection and remove
     // the client from the client's list
-    println!("closing connection with: {addr}");
-    remove_client(clients, &socket).await;
+    println!("closing connection with: {}", user.address);
+    remove_client(clients, user).await;
 }
 
 // function that removes the associated client from the client's list
-async fn remove_client(clients: Clients, socket: &Arc<TcpStream>) {
+async fn remove_client(clients: Clients, user: Arc<User>) {
     let mut remove_index: Option<usize> = None;
     let mut guard = clients.lock().await;
     for (index, client) in guard.iter().enumerate() {
-        if Arc::ptr_eq(client, socket) {
+        if Arc::ptr_eq(client, &user) {
             remove_index = Some(index);
             break;
         }
@@ -145,13 +140,14 @@ async fn remove_client(clients: Clients, socket: &Arc<TcpStream>) {
 // Sends messages on our sender to our writer thread
 async fn send_message(
     message: String,
-    user: &User,
-    tx: &mpsc::Sender<String>,
+    user: &Arc<User>,
+    tx: &Sender<String>,
 ) -> Result<(), String> {
-    let message = format!("{}: {}", user.nick_name, message);
+    let message = format!("{}: {}", user.get_display_name().await, message);
     let message = message.replace('"', "");
+
     if tx.send(message).await.is_err() {
-        eprintln!("closing connection with: {}", user.nick_name);
+        eprintln!("closing connection with: {}", user.get_display_name().await);
         return Err(String::from("Failed to write message"));
     }
     Ok(())
@@ -159,19 +155,40 @@ async fn send_message(
 
 #[tokio::main]
 async fn main() {
+    let cli_handle = CliHandle::new(args());
+    let config_handle = match cli_handle.config {
+        Some(config) => ConfigHandle::new(Some(config)),
+        None => ConfigHandle::new(None)
+    };
+
+    let config_handle = match config_handle {
+        Ok(config_handle) => Arc::new(config_handle),
+        Err(e) => {
+            eprintln!("{}", e);
+            process::exit(1);
+        }
+    };
+
+    let config_handle = Arc::new(config_handle);
+
+    let address = format!("{}:{}",
+                      config_handle.get_value_string("host_ip").unwrap(),
+                      config_handle.get_value_string("host_port").unwrap()).replace('"', "");
     // Set up our listener or die trying
-    let server = TcpListener::bind(LOCAL)
+    let server = TcpListener::bind(&address)
         .await
         .expect("Listener failed to bind");
 
+    println!("Server is listening on {}!", address);
+
     // Create our list of clients Needs to be Arc of Mutex of Arcs
-    // so that the send trait is repected throughout
+    // so that the sent trait is respected throughout
     let clients = Arc::new(Mutex::new(Vec::new()));
     // set up the sender and receiver for our threads
-    let (tx, rx) = mpsc::channel::<String>(32);
+    let (tx, rx) = channel::<String>(32);
 
     // spawn off our writer
-    tokio::spawn(handle_writes(rx, Arc::clone(&clients)));
+    tokio::spawn(handle_writes(Arc::clone(&config_handle), rx, Arc::clone(&clients)));
 
     // Loop until our listener fails
     while let Ok((socket, addr)) = server.accept().await {
@@ -180,15 +197,15 @@ async fn main() {
         println!("Client {addr} connected");
 
         // put our socket in an Arc so it can be shared
-        // and push it to the clients list
-        let socket = Arc::new(socket);
-        clients.lock().await.push(Arc::clone(&socket));
+        // and push it to the client's list
+        let user = Arc::new(User::from(socket, Some(addr)));
+        clients.lock().await.push(Arc::clone(&user));
 
         // spawn off our client thread
         tokio::spawn(handle_client(
-            socket,
+            Arc::clone(&config_handle),
+            Arc::clone(&user),
             tx.clone(),
-            addr,
             Arc::clone(&clients),
         ));
     }
