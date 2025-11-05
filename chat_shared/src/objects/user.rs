@@ -1,5 +1,4 @@
 use tokio::sync::Mutex;
-use chrono::{DateTime, Utc};
 use tokio::net::TcpStream;
 
 pub struct User {
@@ -34,13 +33,7 @@ impl User {
 
     pub async fn disconnect(&mut self) {
         let mut is_active = self.is_active.lock().await;
-        
+
         *is_active = false;
     }
-}
-
-struct MessageDTO {
-    author: User,
-    message_content: String,
-    timestamp: DateTime<Utc>
 }

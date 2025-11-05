@@ -1,35 +1,7 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
-use crate::errors::ConfigError;
-
-pub struct CliHandle {
-    pub config: Option<File>
-}
-
-fn get_config_file(args: std::env::Args) -> Option<File> {
-    let config = File::open(args.collect::<Vec<String>>()[1].clone());
-
-    if config.is_err() {
-        return None
-    }
-
-    Some(config.unwrap())
-}
-
-impl CliHandle {
-    pub fn new(args: std::env::Args) -> Self {
-        if args.len() < 2 {
-            return Self {
-                config: None
-            }
-        }
-
-        Self {
-            config: get_config_file(args)
-        }
-    }
-}
+use crate::ConfigError;
 
 const DEFAULT_CONFIG_FILE: &str = "../env/config.toml";
 const DEFAULT_CONFIG_KEYS: [&str; 4] = ["host_ip", "host_port", "msg_size", "prefix"];
@@ -65,7 +37,7 @@ impl ConfigHandle {
     pub fn new(config_file: Option<File>) -> Result<Self, ConfigError> {
         let file = match config_file {
             Some(file) => file,
-            None => File::open(DEFAULT_CONFIG_FILE).map_err(|e| ConfigError::NoConfigOrFlag)?
+            None => File::open(DEFAULT_CONFIG_FILE).map_err(|_| ConfigError::NoConfigOrFlag)?
         };
 
         let options = parse_config(file)?;
@@ -85,11 +57,11 @@ impl ConfigHandle {
 
         Ok(Self { options})
     }
-    
+
     pub fn get_value_string(&self, key: &str) -> Option<String> {
         self.options.get(key).map(|s| s.to_string())
     }
-    
+
     pub fn get_value_usize(&self, key: &str) -> Option<usize> {
         self.options.get(key).map(|s| s.to_string().parse::<usize>().expect("Failed to convert value to a usize"))
     }

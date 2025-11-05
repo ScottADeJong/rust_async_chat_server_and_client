@@ -1,3 +1,7 @@
 pub mod handles;
+pub mod errors;
 pub mod objects;
-mod errors;
+
+pub use handles::*;
+pub use errors::*;
+pub use objects::*;
