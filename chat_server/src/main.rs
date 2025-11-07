@@ -5,7 +5,7 @@ use tokio::io::ErrorKind;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 use tokio::sync::mpsc::{Sender, Receiver, channel};
-use chat_shared::handles::{CliHandle, ConfigHandle};
+use chat_shared::Config;
 use chat_shared::objects::User;
 
 // define a type to make this easier to work with
@@ -47,13 +47,13 @@ async fn process_command(command: &str, user: &Arc<User>) -> Result<(), String> 
 
 // Handle the writing to the attached clients
 // Reads from the thread receiver and writes using the clients vec
-async fn handle_writes(config_handle: Arc<ConfigHandle>, mut rx: Receiver<String>, clients: Clients) {
+async fn handle_writes(config: Arc<Config>, mut rx: Receiver<String>, clients: Clients) {
     // Exit if our receiver is closed
     while let Some(message) = rx.recv().await {
         let guard = clients.lock().await;
         for client in guard.iter() {
             let mut buff = message.clone().into_bytes();
-            buff.resize(config_handle.get_value_usize("msg_size").unwrap(), 0);
+            buff.resize(config.msg_size as usize, 0);
 
             if let Some(socket) = client.socket.as_ref() &&
                 socket.try_write(&buff).is_err() {
@@ -66,13 +66,13 @@ async fn handle_writes(config_handle: Arc<ConfigHandle>, mut rx: Receiver<String
 // Read messages from our client, parse them and where appropriate
 // put send to the writer thread
 async fn handle_client(
-    config_handle: Arc<ConfigHandle>,
+    config: Arc<Config>,
     user: Arc<User>,
     tx: Sender<String>,
     clients: Clients
 ) {
     println!("Starting thread for {}", user.address);
-    let mut buffer = vec![0; config_handle.get_value_usize("msg_size").unwrap()];
+    let mut buffer = vec![0; config.msg_size as usize];
 
     loop {
         {
@@ -155,25 +155,30 @@ async fn send_message(
 
 #[tokio::main]
 async fn main() {
-    let cli_handle = CliHandle::new(args());
-    let config_handle = match cli_handle.config {
-        Some(config) => ConfigHandle::new(Some(config)),
-        None => ConfigHandle::new(None)
+    let config = match chat_shared::get_config_path(args()) {
+        Some(config) => Config::from_path(Some(&config.as_ref())),
+        None => Config::from_path(None),
     };
 
-    let config_handle = match config_handle {
-        Ok(config_handle) => Arc::new(config_handle),
-        Err(e) => {
-            eprintln!("{}", e);
+    let config = match config {
+        Ok(config) => config,
+        Err(error) => {
+            eprintln!("{error}");
             process::exit(1);
         }
     };
 
-    let config_handle = Arc::new(config_handle);
+    if let Err(e) = config.get_ip() {
+        eprintln!("{e}");
+        process::exit(1);
+    }
 
     let address = format!("{}:{}",
-                      config_handle.get_value_string("host_ip").unwrap(),
-                      config_handle.get_value_string("host_port").unwrap()).replace('"', "");
+                      config.get_ip().unwrap(),
+                      config.host_port).replace('"', "");
+
+
+    let config = Arc::new(config);
     // Set up our listener or die trying
     let server = TcpListener::bind(&address)
         .await
@@ -188,7 +193,7 @@ async fn main() {
     let (tx, rx) = channel::<String>(32);
 
     // spawn off our writer
-    tokio::spawn(handle_writes(Arc::clone(&config_handle), rx, Arc::clone(&clients)));
+    tokio::spawn(handle_writes(Arc::clone(&config), rx, Arc::clone(&clients)));
 
     // Loop until our listener fails
     while let Ok((socket, addr)) = server.accept().await {
@@ -203,7 +208,7 @@ async fn main() {
 
         // spawn off our client thread
         tokio::spawn(handle_client(
-            Arc::clone(&config_handle),
+            Arc::clone(&config),
             Arc::clone(&user),
             tx.clone(),
             Arc::clone(&clients),

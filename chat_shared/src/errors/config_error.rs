@@ -1,11 +1,13 @@
 use std::fmt;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub enum ConfigError {
     NoConfigOrFlag,
     NoValidSettings,
-    ConfigReadFailed(String),
-    MissingKeys(Vec<String>)
+    ConfigReadFailed,
+    ConfigParseFailed,
+    MissingHostIp
 }
 
 impl fmt::Display for ConfigError {
@@ -13,8 +15,9 @@ impl fmt::Display for ConfigError {
         match self {
             ConfigError::NoConfigOrFlag => write!(f, "No config file or flag provided."),
             ConfigError::NoValidSettings => write!(f, "No valid settings in provided config file. Review Template."),
-            ConfigError::ConfigReadFailed(e) => write!(f, "Config file read failed: {}", e),
-            ConfigError::MissingKeys(keys) => write!(f, "Missing keys: {:?}", keys)
+            ConfigError::ConfigReadFailed => write!(f, "Failed to read the config file, do you have permissions?"),
+            ConfigError::ConfigParseFailed => write!(f, "Failed to parse the config file, is it valid?"),
+            ConfigError::MissingHostIp => write!(f, "Missing host IP in the config file.")
         }
     }
 }

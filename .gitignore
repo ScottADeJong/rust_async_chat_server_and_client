@@ -2,7 +2,7 @@
 Icon
 */Icon
 
-config.toml
+config.ron
 Cargo.lock
 .idea/
 .DS_Store
