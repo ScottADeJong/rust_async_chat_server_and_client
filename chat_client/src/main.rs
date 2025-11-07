@@ -8,7 +8,6 @@ use tokio::net::TcpStream;
 use tokio::spawn;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use chat_shared::Config;
-use chat_shared::handles::CliHandle;
 use chat_shared::objects::User;
 
 // Helper function to translate the buffer to utf8 and print to the console
@@ -86,38 +85,30 @@ async fn send_to_server(
 
 #[tokio::main]
 async fn main() {
-    let cli_handle = CliHandle::new(args());
-
-    let config = match cli_handle.config {
-        Some(config) => Config::from_file(Some(&*config)),
-        None => Config::from_file(None),
+    let config = match chat_shared::get_config_path(args()) {
+        Some(config) => Config::from_path(Some(&config.as_ref())),
+        None => Config::from_path(None),
     };
 
     let config = match config {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("{e}");
+        Ok(config) => config,
+        Err(error) => {
+            eprintln!("{error}");
             process::exit(1);
         }
     };
 
-    match config.validate() {
-        Ok(_) => (),
-        Err(e) => {
-            eprintln!("{e}");
-            process::exit(1);
-        }
+    if let Err(e) = config.get_ip() {
+        eprintln!("{e}");
+        process::exit(1);   
     }
 
+    let address = format!("{}:{}",
+                          config.get_ip().unwrap(),
+                          config.host_port).replace('"', "");
+
+
     let config = Arc::new(config);
-
-    let address = format!(
-        "{}:{}",
-        config.get_ip(),
-        config.host_port
-    )
-    .replace('"', "");
-
     // Open our stream or die trying
     let client = TcpStream::connect(address)
         .await

@@ -6,7 +6,6 @@ use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 use tokio::sync::mpsc::{Sender, Receiver, channel};
 use chat_shared::Config;
-use chat_shared::handles::CliHandle;
 use chat_shared::objects::User;
 
 // define a type to make this easier to work with
@@ -156,35 +155,30 @@ async fn send_message(
 
 #[tokio::main]
 async fn main() {
-    let cli_handle = CliHandle::new(args());
-
-    let config = match cli_handle.config {
-        Some(config) => Config::from_file(Some(&*config)),
-        None => Config::from_file(None),
+    let config = match chat_shared::get_config_path(args()) {
+        Some(config) => Config::from_path(Some(&config.as_ref())),
+        None => Config::from_path(None),
     };
 
     let config = match config {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("{e}");
+        Ok(config) => config,
+        Err(error) => {
+            eprintln!("{error}");
             process::exit(1);
         }
     };
 
-    match config.validate() {
-        Ok(_) => (),
-        Err(e) => {
-            eprintln!("{e}");
-            process::exit(1);
-        }
+    if let Err(e) = config.get_ip() {
+        eprintln!("{e}");
+        process::exit(1);
     }
 
-    let config = Arc::new(config);
-
     let address = format!("{}:{}",
-                      config.get_ip(),
+                      config.get_ip().unwrap(),
                       config.host_port).replace('"', "");
 
+
+    let config = Arc::new(config);
     // Set up our listener or die trying
     let server = TcpListener::bind(&address)
         .await
