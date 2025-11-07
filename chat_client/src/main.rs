@@ -1,5 +1,3 @@
-use chat_shared::handles::{CliHandle, ConfigHandle};
-use chat_shared::objects::User;
 use std::env::args;
 use std::sync::Arc;
 use std::thread::sleep;
@@ -9,6 +7,8 @@ use tokio::io::ErrorKind;
 use tokio::net::TcpStream;
 use tokio::spawn;
 use tokio::sync::mpsc::{self, Receiver, Sender};
+use chat_shared::Config;
+use chat_shared::objects::User;
 
 // Helper function to translate the buffer to utf8 and print to the console
 async fn get_and_print_message(buffer: Vec<u8>, user: &Arc<User>) {
@@ -50,10 +50,10 @@ async fn read_and_send(tx: Sender<String>, user: Arc<User>) {
     sleep(Duration::new(0, 100));
 }
 
-async fn get_message_from_server(config_handle: Arc<ConfigHandle>, user: Arc<User>) {
+async fn get_message_from_server(config_handle: Arc<Config>, user: Arc<User>) {
     let socket = user.socket.as_ref().unwrap();
     while socket.readable().await.is_ok() {
-        let mut buffer = vec![0; config_handle.get_value_usize("msg_size").unwrap()];
+        let mut buffer = vec![0; config_handle.msg_size as usize];
         match socket.try_read(&mut buffer) {
             Ok(0) => continue,
             Ok(_) => get_and_print_message(buffer, &user).await,
@@ -69,13 +69,13 @@ async fn get_message_from_server(config_handle: Arc<ConfigHandle>, user: Arc<Use
 // check the receiver and if we have data, try to write it to the
 // stream
 async fn send_to_server(
-    config_handle: Arc<ConfigHandle>,
+    config: Arc<Config>,
     mut rx: Receiver<String>,
     user: Arc<User>,
 ) {
     while let Some(message) = rx.recv().await {
         let mut buff = message.into_bytes();
-        buff.resize(config_handle.get_value_usize("msg_size").unwrap(), 0);
+        buff.resize(config.msg_size as usize, 0);
         let socket = user.socket.as_ref().unwrap();
 
         socket.writable().await.expect("Could not check writable");
@@ -85,27 +85,30 @@ async fn send_to_server(
 
 #[tokio::main]
 async fn main() {
-    let cli_handle = CliHandle::new(args());
-    let config_handle = match cli_handle.config {
-        Some(config) => ConfigHandle::new(Some(config)),
-        None => ConfigHandle::new(None),
+    let config = match chat_shared::get_config_path(args()) {
+        Some(config) => Config::from_path(Some(&config.as_ref())),
+        None => Config::from_path(None),
     };
 
-    let config_handle = match config_handle {
-        Ok(config_handle) => Arc::new(config_handle),
-        Err(e) => {
-            eprintln!("{}", e);
+    let config = match config {
+        Ok(config) => config,
+        Err(error) => {
+            eprintln!("{error}");
             process::exit(1);
         }
     };
 
-    let address = format!(
-        "{}:{}",
-        config_handle.get_value_string("host_ip").unwrap(),
-        config_handle.get_value_string("host_port").unwrap()
-    )
-    .replace('"', "");
+    if let Err(e) = config.get_ip() {
+        eprintln!("{e}");
+        process::exit(1);   
+    }
 
+    let address = format!("{}:{}",
+                          config.get_ip().unwrap(),
+                          config.host_port).replace('"', "");
+
+
+    let config = Arc::new(config);
     // Open our stream or die trying
     let client = TcpStream::connect(address)
         .await
@@ -118,14 +121,14 @@ async fn main() {
 
     // spawn off our routine that sends messages to the server
     spawn(send_to_server(
-        Arc::clone(&config_handle),
+        Arc::clone(&config),
         rx,
         Arc::clone(&user),
     ));
     // spawn off our routine that gets messages from the server
     spawn(get_message_from_server(
-        Arc::clone(&config_handle),
-        Arc::clone(&user),
+        Arc::clone(&config),
+        Arc::clone(&user)
     ));
 
     println!("Welcome to chat!!!!");
