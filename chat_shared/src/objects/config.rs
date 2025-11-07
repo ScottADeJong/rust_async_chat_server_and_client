@@ -3,6 +3,7 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use ron::ser::PrettyConfig;
 use crate::ConfigError;
 use serde::{Deserialize, Serialize};
@@ -15,7 +16,7 @@ pub struct Config {
     pub host_ipv6: Option<Ipv6Addr>,
     pub host_port: usize,
     pub msg_size: u8,
-    pub prefix: String,
+    pub prefix: char,
 }
 
 impl Default for Config {
@@ -25,7 +26,7 @@ impl Default for Config {
             host_ipv6: None,
             host_port: 7070,
             msg_size: 255,
-            prefix: ":".to_string(),
+            prefix: char::from_str(":").expect("':' COULD NOT CONVERT TO CHAR"),
         }
     }
 }
