@@ -32,10 +32,10 @@ const DEFAULT_CONFIG_FILE: &str = "env/config.ron";
 /// This struct supports serialization and deserialization using Serde, and includes the following fields:
 ///
 /// ## Fields
-/// - `host_ipv4` (*Option<Ipv4Addr>*):
+/// - `host_ipv4` (*`Option<Ipv4Addr>`*):
 ///   An optional IPv4 address specifying the host IP.
 ///   If `None`, no IPv4 address is configured.
-/// - `host_ipv6` (*Option<Ipv6Addr>*):
+/// - `host_ipv6` (*`Option<Ipv6Addr>`*):
 ///   An optional IPv6 address specifying the host IP.
 ///   If `None`, no IPv6 address is configured.
 /// - `host_port` (*usize*):
