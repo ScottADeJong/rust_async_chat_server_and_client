@@ -3,5 +3,5 @@
     host_ipv6: None,
     host_port: 7070,
     msg_size: 255,
-    prefix: ":"
+    prefix: ':'
 )

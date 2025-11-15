@@ -85,11 +85,15 @@ async fn send_to_server(
 
 #[tokio::main]
 async fn main() {
+    // Get the config file path from the command line arguments.
+    // Then match the result and either load the config from the file the path supplied or request default.
     let config = match chat_shared::get_config_path(args()) {
         Some(config) => Config::from_path(Some(&config.as_ref())),
         None => Config::from_path(None),
     };
 
+
+    // If the config is not valid, print the error and exit.
     let config = match config {
         Ok(config) => config,
         Err(error) => {
@@ -98,22 +102,27 @@ async fn main() {
         }
     };
 
-    if let Err(e) = config.get_ip() {
-        eprintln!("{e}");
-        process::exit(1);   
-    }
+    // If the config is valid, get the ip address and port from the config.
+    // If the ip address is not valid, print the error and exit.
+    let host_ip = config.get_ip().unwrap_or_else(|_|{
+        eprintln!("Invalid IP address");
+        process::exit(1);
+    });
 
+    // Create the address string to connect to.
     let address = format!("{}:{}",
-                          config.get_ip().unwrap(),
+                          host_ip,
                           config.host_port).replace('"', "");
 
 
+    // Create a shared config and user object to pass to our threads
     let config = Arc::new(config);
     // Open our stream or die trying
     let client = TcpStream::connect(address)
         .await
         .expect("Stream failed to connect");
 
+    // Create a shared user object to pass to our threads
     let user = Arc::new(User::from(client, None));
 
     // Open our thread communication channels
