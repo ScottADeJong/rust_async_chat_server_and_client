@@ -1,0 +1,9 @@
+[workspace]
+members = ["chat_client", "chat_server", "chat_shared"]
+
+[workspace.dependencies]
+tokio = { version = "1.8.0", features = ["rt-multi-thread", "macros", "net", "sync", "signal"]}
+chat_shared = {version = "1.0.0-dev", path = "chat_shared"}
+serde = { version = "1.0.228", features = ["derive"] }
+ron = "0.11.0"
+uuid = { version = "1.18.1", features = ["v4"] }
