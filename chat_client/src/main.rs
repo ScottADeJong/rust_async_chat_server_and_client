@@ -1,97 +1,21 @@
-use std::env::args;
-use std::sync::Arc;
-use std::thread::sleep;
-use std::time::Duration;
-use std::{io, process};
-use tokio::io::ErrorKind;
-use tokio::net::TcpStream;
-use tokio::spawn;
-use tokio::sync::mpsc::{self, Receiver, Sender};
+use chat_client::*;
 use chat_shared::Config;
 use chat_shared::objects::User;
-
-// Helper function to translate the buffer to utf8 and print to the console
-async fn get_and_print_message(buffer: Vec<u8>, user: &Arc<User>) {
-    // Translate buffer to a vec
-    let message: Vec<u8> = buffer.into_iter().filter(|n| *n != 0).collect();
-    // Translate the vec to a utf8 string
-    let message = String::from_utf8(message).expect("Invalid utf8 message");
-    // If the message is not empty and is not sent by us, print it
-    let display_name = user.get_display_name().await;
-    if !message.is_empty() && !message.starts_with(format!("{}: ", display_name).as_str()) {
-        println!("-->{}", message);
-    }
-}
-
-// This function handles getting information from
-// stdin and sending it to the server
-async fn read_and_send(tx: Sender<String>, user: Arc<User>) {
-    // Create a buffer to control our loop and to collect
-    // the message to send
-    let mut buff = String::new();
-
-    // Loop until we choose to quit
-    while buff.trim() != ":quit" {
-        buff = String::new();
-        io::stdin()
-            .read_line(&mut buff)
-            .expect("reading from stdin failed");
-
-        let buff = buff.trim().to_string();
-        if buff.contains(":name ") {
-            let mut nickname = user.nickname.lock().await;
-            *nickname = Some(buff.split_whitespace().nth(1).unwrap().to_string());
-        }
-
-        // Send to our receiver thread
-        tx.send(buff).await.expect("Couldn't send the message");
-    }
-
-    sleep(Duration::new(0, 100));
-}
-
-async fn get_message_from_server(config_handle: Arc<Config>, user: Arc<User>) {
-    let socket = user.socket.as_ref().unwrap();
-    while socket.readable().await.is_ok() {
-        let mut buffer = vec![0; config_handle.msg_size as usize];
-        match socket.try_read(&mut buffer) {
-            Ok(0) => continue,
-            Ok(_) => get_and_print_message(buffer, &user).await,
-            Err(ref err) if err.kind() == ErrorKind::WouldBlock => continue,
-            Err(_) => {
-                eprintln!("Connection with the server was severed");
-                break;
-            }
-        }
-    }
-}
-
-// check the receiver and if we have data, try to write it to the
-// stream
-async fn send_to_server(
-    config: Arc<Config>,
-    mut rx: Receiver<String>,
-    user: Arc<User>,
-) {
-    while let Some(message) = rx.recv().await {
-        let mut buff = message.into_bytes();
-        buff.resize(config.msg_size as usize, 0);
-        let socket = user.socket.as_ref().unwrap();
-
-        socket.writable().await.expect("Could not check writable");
-        socket.try_write(&buff).expect("writing to socket failed");
-    }
-}
+use std::env::args;
+use std::process;
+use std::sync::Arc;
+use tokio::net::TcpStream;
+use tokio::spawn;
+use tokio::sync::mpsc;
 
 #[tokio::main]
 async fn main() {
     // Get the config file path from the command line arguments.
     // Then match the result and either load the config from the file the path supplied or request default.
     let config = match chat_shared::get_config_path(args()) {
-        Some(config) => Config::from_path(Some(&config.as_ref())),
+        Some(config) => Config::from_path(Some(config.as_ref())),
         None => Config::from_path(None),
     };
-
 
     // If the config is not valid, print the error and exit.
     let config = match config {
@@ -104,16 +28,13 @@ async fn main() {
 
     // If the config is valid, get the ip address and port from the config.
     // If the ip address is not valid, print the error and exit.
-    let host_ip = config.get_ip().unwrap_or_else(|_|{
+    let host_ip = config.get_ip().unwrap_or_else(|_| {
         eprintln!("Invalid IP address");
         process::exit(1);
     });
 
     // Create the address string to connect to.
-    let address = format!("{}:{}",
-                          host_ip,
-                          config.host_port).replace('"', "");
-
+    let address = format!("{}:{}", host_ip, config.host_port).replace('"', "");
 
     // Create a shared config and user object to pass to our threads
     let config = Arc::new(config);
@@ -129,15 +50,11 @@ async fn main() {
     let (tx, rx) = mpsc::channel::<String>(32);
 
     // spawn off our routine that sends messages to the server
-    spawn(send_to_server(
-        Arc::clone(&config),
-        rx,
-        Arc::clone(&user),
-    ));
+    spawn(send_to_server(Arc::clone(&config), rx, Arc::clone(&user)));
     // spawn off our routine that gets messages from the server
     spawn(get_message_from_server(
         Arc::clone(&config),
-        Arc::clone(&user)
+        Arc::clone(&user),
     ));
 
     println!("Welcome to chat!!!!");
