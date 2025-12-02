@@ -1,5 +1,7 @@
-use tokio::sync::Mutex;
+use std::sync::Arc;
 use tokio::net::TcpStream;
+use tokio::sync::Mutex;
+use uuid::Uuid;
 
 /// Represents a user in a networked system, containing information related to their connection,
 /// identifier, and activity status.
@@ -20,10 +22,10 @@ use tokio::net::TcpStream;
 ///   whether the user is still participating in the system.
 pub struct User {
     pub socket: Option<TcpStream>,
-    pub nickname: Mutex<Option<String>>,
-    pub address: String,
-    pub is_active: Mutex<bool>
+    pub is_active: Mutex<bool>,
+    pub member: Arc<Member>,
 }
+
 impl User {
     /// Constructs a new instance of the struct using a provided `TcpStream`
     /// and an optional address.
@@ -57,14 +59,13 @@ impl User {
     pub fn from(tcp_stream: TcpStream, address: Option<String>) -> Self {
         let address = match address {
             Some(address) => address,
-            None => tcp_stream.local_addr().unwrap().to_string()
+            None => tcp_stream.local_addr().unwrap().to_string(),
         };
 
         Self {
             socket: Some(tcp_stream),
-            nickname: Mutex::new(None),
-            address,
-            is_active: Mutex::new(true)
+            is_active: Mutex::new(true),
+            member: Arc::new(Member::new(address)),
         }
     }
 
@@ -101,11 +102,27 @@ impl User {
     /// This function does not return errors as it defaults to `self.address`
     /// if the nickname is absent.
     pub async fn get_display_name(&self) -> String {
-        let nickname = self.nickname.lock().await;
+        let nickname = self.member.nick_name.lock().await;
 
         match &*nickname {
             Some(nick_name) => nick_name.clone(),
-            None => self.address.clone()
+            None => self.member.address.clone(),
+        }
+    }
+}
+
+pub struct Member {
+    pub id: Uuid,
+    pub address: String,
+    pub nick_name: Mutex<Option<String>>,
+}
+
+impl Member {
+    pub fn new(address: String) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            address,
+            nick_name: Mutex::new(None),
         }
     }
 }

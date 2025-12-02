@@ -1,12 +1,7 @@
 use chat_server::*;
-use chat_shared::Config;
-use chat_shared::objects::User;
-use std::env::args;
-use std::process;
-use std::sync::Arc;
-use tokio::net::TcpListener;
-use tokio::sync::Mutex;
-use tokio::sync::mpsc::channel;
+use chat_shared::{Config, User};
+use std::{env::args, process, sync::Arc};
+use tokio::{net::TcpListener, sync::Mutex, sync::mpsc::channel};
 
 #[tokio::main]
 async fn main() {

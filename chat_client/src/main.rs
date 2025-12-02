@@ -1,12 +1,7 @@
 use chat_client::*;
-use chat_shared::Config;
-use chat_shared::objects::User;
-use std::env::args;
-use std::process;
-use std::sync::Arc;
-use tokio::net::TcpStream;
-use tokio::spawn;
-use tokio::sync::mpsc;
+use chat_shared::{Config, Message, User};
+use std::{env::args, process, sync::Arc};
+use tokio::{net::TcpStream, spawn, sync::mpsc};
 
 #[tokio::main]
 async fn main() {
@@ -47,7 +42,7 @@ async fn main() {
     let user = Arc::new(User::from(client, None));
 
     // Open our thread communication channels
-    let (tx, rx) = mpsc::channel::<String>(32);
+    let (tx, rx) = mpsc::channel::<Message>(32);
 
     // spawn off our routine that sends messages to the server
     spawn(send_to_server(Arc::clone(&config), rx, Arc::clone(&user)));

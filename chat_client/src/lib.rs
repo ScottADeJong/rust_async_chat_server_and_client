@@ -1,11 +1,9 @@
-use chat_shared::Config;
-use chat_shared::objects::User;
-use std::io;
-use std::sync::Arc;
-use std::thread::sleep;
-use std::time::Duration;
-use tokio::io::ErrorKind;
-use tokio::sync::mpsc::{Receiver, Sender};
+use chat_shared::{Config, Message, User};
+use std::{io, sync::Arc, thread::sleep, time::Duration};
+use tokio::{
+    io::ErrorKind,
+    sync::mpsc::{Receiver, Sender},
+};
 
 // Helper function to translate the buffer to utf8 and print to the console
 pub async fn get_and_print_message(buffer: Vec<u8>, user: &Arc<User>) {
@@ -22,7 +20,7 @@ pub async fn get_and_print_message(buffer: Vec<u8>, user: &Arc<User>) {
 
 // This function handles getting information from
 // stdin and sending it to the server
-pub async fn read_and_send(tx: Sender<String>, user: Arc<User>) {
+pub async fn read_and_send(tx: Sender<Message>, user: Arc<User>) {
     // Create a buffer to control our loop and to collect
     // the message to send
     let mut buff = String::new();
@@ -41,7 +39,9 @@ pub async fn read_and_send(tx: Sender<String>, user: Arc<User>) {
         }
 
         // Send to our receiver thread
-        tx.send(buff).await.expect("Couldn't send the message");
+        let message = Message::from_string(user.member.clone(), buff);
+
+        tx.send(message).await.expect("Couldn't send the message");
     }
 
     sleep(Duration::new(0, 100));
@@ -65,9 +65,9 @@ pub async fn get_message_from_server(config_handle: Arc<Config>, user: Arc<User>
 
 // check the receiver and if we have data, try to write it to the
 // stream
-pub async fn send_to_server(config: Arc<Config>, mut rx: Receiver<String>, user: Arc<User>) {
+pub async fn send_to_server(config: Arc<Config>, mut rx: Receiver<Message>, user: Arc<User>) {
     while let Some(message) = rx.recv().await {
-        let mut buff = message.into_bytes();
+        let mut buff = message.content;
         buff.resize(config.msg_size as usize, 0);
         let socket = user.socket.as_ref().unwrap();
 

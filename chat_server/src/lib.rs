@@ -1,9 +1,10 @@
-use chat_shared::Config;
-use chat_shared::objects::User;
+use chat_shared::{Config, User};
 use std::sync::Arc;
-use tokio::io::ErrorKind;
-use tokio::sync::Mutex;
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::{
+    io::ErrorKind,
+    sync::Mutex,
+    sync::mpsc::{Receiver, Sender},
+};
 
 // define a type to make this easier to work with
 type Clients = Arc<Mutex<Vec<Arc<User>>>>;
