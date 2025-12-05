@@ -3,3 +3,4 @@ An async chat server and client written in Rust using tokio. This started as an 
 
 TODO:
 - [ ] Work on sending the message from client to server
+  - [ ] Create DTOs

@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
@@ -111,8 +112,31 @@ impl User {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct MemberDataTransferObject {
+    pub id: Vec<u8>,
+    pub address: Vec<u8>,
+    pub nick_name: Option<Vec<u8>>,
+}
+
+impl MemberDataTransferObject {
+    pub async fn from(member: &Member) -> Self {
+        let nick_name_guard = member.nick_name.lock().await;
+        let nick_name_clone = nick_name_guard.as_deref();
+        let nick_name_clone = match nick_name_clone {
+            Some(nn) => Some(nn.to_string().into_bytes()),
+            None => None,
+        };
+        Self {
+            id: member.id.into_bytes().to_vec(),
+            address: member.address.clone().into_bytes(),
+            nick_name: nick_name_clone,
+        }
+    }
+}
+
 pub struct Member {
-    pub id: Uuid,
+    pub id: String,
     pub address: String,
     pub nick_name: Mutex<Option<String>>,
 }
@@ -120,7 +144,7 @@ pub struct Member {
 impl Member {
     pub fn new(address: String) -> Self {
         Self {
-            id: Uuid::new_v4(),
+            id: Uuid::new_v4().to_string(),
             address,
             nick_name: Mutex::new(None),
         }

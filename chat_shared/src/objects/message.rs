@@ -1,8 +1,27 @@
-use crate::Member;
+use crate::{Member, MemberDataTransferObject};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
 
-// TODO: implement serde here
+#[derive(Serialize, Deserialize)]
+pub struct MessageDataTransferObject {
+    pub content: Vec<u8>,
+    pub author: MemberDataTransferObject,
+    pub channel: Destination,
+    pub kind: MessageKind,
+}
+
+impl MessageDataTransferObject {
+    pub async fn from(message: Message) -> Self {
+        Self {
+            content: message.content,
+            author: MemberDataTransferObject::from(message.author.as_ref()).await,
+            channel: message.channel,
+            kind: message.kind,
+        }
+    }
+}
+
 pub struct Message {
     pub content: Vec<u8>,
     pub author: Arc<Member>,
@@ -10,12 +29,14 @@ pub struct Message {
     pub kind: MessageKind,
 }
 
+#[derive(Serialize, Deserialize)]
 pub enum Destination {
     Global,
     Channel(Channel),
     Direct(Member),
 }
 
+#[derive(Serialize, Deserialize)]
 pub enum MessageKind {
     Message,
     Command,
@@ -23,6 +44,7 @@ pub enum MessageKind {
 }
 
 #[allow(dead_code)]
+#[derive(Serialize, Deserialize)]
 pub struct Channel {
     id: Uuid,
     display_name: String,

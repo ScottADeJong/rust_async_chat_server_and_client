@@ -1,3 +1,4 @@
+// TODO: Fix send_to_server
 use chat_shared::{Config, Message, User};
 use std::{io, sync::Arc, thread::sleep, time::Duration};
 use tokio::{
@@ -65,6 +66,7 @@ pub async fn get_message_from_server(config_handle: Arc<Config>, user: Arc<User>
 
 // check the receiver and if we have data, try to write it to the
 // stream
+// TODO: Send the message struct instead of the content array
 pub async fn send_to_server(config: Arc<Config>, mut rx: Receiver<Message>, user: Arc<User>) {
     while let Some(message) = rx.recv().await {
         let mut buff = message.content;
