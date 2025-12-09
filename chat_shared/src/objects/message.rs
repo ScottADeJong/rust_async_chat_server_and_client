@@ -1,30 +1,11 @@
-use crate::{Member, MemberDataTransferObject};
+use crate::Client;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use uuid::Uuid;
 
 #[derive(Serialize, Deserialize)]
-pub struct MessageDataTransferObject {
-    pub content: Vec<u8>,
-    pub author: MemberDataTransferObject,
-    pub channel: Destination,
-    pub kind: MessageKind,
-}
-
-impl MessageDataTransferObject {
-    pub async fn from(message: Message) -> Self {
-        Self {
-            content: message.content,
-            author: MemberDataTransferObject::from(message.author.as_ref()).await,
-            channel: message.channel,
-            kind: message.kind,
-        }
-    }
-}
-
 pub struct Message {
+    pub address: String,
     pub content: Vec<u8>,
-    pub author: Arc<Member>,
     pub channel: Destination,
     pub kind: MessageKind,
 }
@@ -33,10 +14,10 @@ pub struct Message {
 pub enum Destination {
     Global,
     Channel(Channel),
-    Direct(Member),
+    Direct(Client),
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum MessageKind {
     Message,
     Command,
@@ -46,25 +27,26 @@ pub enum MessageKind {
 #[allow(dead_code)]
 #[derive(Serialize, Deserialize)]
 pub struct Channel {
-    id: Uuid,
+    id: String,
     display_name: String,
 }
 
 impl Message {
-    pub fn new(author: Arc<Member>) -> Self {
+    pub fn new(author: Arc<Client>) -> Self {
         Self {
-            author,
+            address: author.address.to_string(),
             content: Vec::new(),
             channel: Destination::Global,
             kind: MessageKind::Message,
         }
     }
-    pub fn from_string(author: Arc<Member>, message: String) -> Self {
+
+    pub fn from_string(author: Arc<Client>, message: String, kind: MessageKind) -> Self {
         Self {
-            author,
+            address: author.address.to_string(),
             content: message.into_bytes(),
             channel: Destination::Global,
-            kind: MessageKind::Message,
+            kind,
         }
     }
 

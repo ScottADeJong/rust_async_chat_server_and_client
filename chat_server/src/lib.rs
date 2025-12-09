@@ -1,4 +1,7 @@
-use chat_shared::{Config, User};
+use chat_shared::{
+    Config, User,
+    message::{Message, MessageKind},
+};
 use std::sync::Arc;
 use tokio::{
     io::ErrorKind,
@@ -10,33 +13,41 @@ use tokio::{
 type Clients = Arc<Mutex<Vec<Arc<User>>>>;
 
 // Get's a message from the buffer
-pub fn get_message_from_buffer(buffer: &[u8]) -> Result<String, String> {
-    match String::from_utf8(buffer.iter().filter(|n| **n != 0).copied().collect()) {
-        Ok(s) => Ok(s),
-        Err(e) => Err(e.to_string()),
+pub fn get_message_from_buffer(buffer: &[u8]) -> Result<Message, String> {
+    let result: Result<Message, String>;
+    if let Ok(message) = String::from_utf8(buffer.iter().filter(|n| **n != 0).copied().collect()) {
+        result = match ron::from_str::<Message>(&message) {
+            Ok(r) => Ok(r),
+            Err(e) => Err(e.to_string()),
+        }
+    } else {
+        result = Err("Could not get message from buffer".to_string());
     }
+    result
 }
 
 // Process a command string sent from the client
 // Currently only returns OK, but error handling should be added
-pub async fn process_command(command: &str, user: &Arc<User>) -> Result<(), String> {
-    let args: Vec<&str> = command.split_whitespace().collect();
-    if let Some(c) = args.first() {
-        match *c {
-            ":quit" => {
-                let mut is_active = user.is_active.lock().await;
-                *is_active = false;
-            }
-            ":name" => {
-                let mut nickname = user.member.nick_name.lock().await;
-
-                match args.len() {
-                    n if n <= 1 => *nickname = None,
-                    _ => *nickname = Some(args[1].to_string()),
+pub async fn process_command(command: Vec<u8>, user: &Arc<User>) -> Result<(), String> {
+    if let Ok(command) = String::from_utf8(command) {
+        let args: Vec<&str> = command.split_whitespace().collect();
+        if let Some(c) = args.first() {
+            match *c {
+                ":quit" => {
+                    let mut is_active = user.is_active.lock().await;
+                    *is_active = false;
                 }
+                ":name" => {
+                    let mut nickname = user.nick_name.lock().await;
+
+                    match args.len() {
+                        n if n <= 1 => *nickname = None,
+                        _ => *nickname = Some(args[1].to_string()),
+                    }
+                }
+                // Should message user that the command was not recognized
+                _ => (),
             }
-            // Should message user that the command was not recognized
-            _ => (),
         }
     }
     Ok(())
@@ -69,7 +80,7 @@ pub async fn handle_client(
     tx: Sender<String>,
     clients: Clients,
 ) {
-    println!("Starting thread for {}", user.member.address);
+    println!("Starting thread for {}", user.client.address);
     let mut buffer = vec![0; config.msg_size as usize];
 
     loop {
@@ -100,10 +111,10 @@ pub async fn handle_client(
         };
 
         // if the contents of msg match the command string, run process_command
-        let message_result = match message.trim() {
-            n if n.starts_with(":") => process_command(n, &user).await,
-            "" => continue,
-            _ => send_message(message, &user, &tx).await,
+        let message_result = match message.kind {
+            MessageKind::Command => process_command(message.content, &user).await,
+            MessageKind::Message => send_message(message.content, &user, &tx).await,
+            MessageKind::ServerBroadcast => continue,
         };
 
         if let Err(e) = message_result {
@@ -114,7 +125,7 @@ pub async fn handle_client(
 
     // if we get here, indicate we are closing the connection and remove
     // the client from the client's list
-    println!("closing connection with: {}", user.member.address);
+    println!("closing connection with: {}", user.client.address);
     remove_client(clients, user).await;
 }
 
@@ -135,16 +146,18 @@ pub async fn remove_client(clients: Clients, user: Arc<User>) {
 
 // Sends messages on our sender to our writer thread
 pub async fn send_message(
-    message: String,
+    message: Vec<u8>,
     user: &Arc<User>,
     tx: &Sender<String>,
 ) -> Result<(), String> {
-    let message = format!("{}: {}", user.get_display_name().await, message);
-    let message = message.replace('"', "");
+    if let Ok(message) = String::from_utf8(message) {
+        let message = format!("{}: {}", user.get_display_name().await, message);
+        let message = message.replace('"', "");
 
-    if tx.send(message).await.is_err() {
-        eprintln!("closing connection with: {}", user.get_display_name().await);
-        return Err(String::from("Failed to write message"));
-    }
+        if tx.send(message).await.is_err() {
+            eprintln!("closing connection with: {}", user.get_display_name().await);
+            return Err(String::from("Failed to write message"));
+        }
+    };
     Ok(())
 }

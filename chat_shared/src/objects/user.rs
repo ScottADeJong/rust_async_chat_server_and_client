@@ -24,7 +24,8 @@ use uuid::Uuid;
 pub struct User {
     pub socket: Option<TcpStream>,
     pub is_active: Mutex<bool>,
-    pub member: Arc<Member>,
+    pub client: Arc<Client>,
+    pub nick_name: Mutex<Option<String>>,
 }
 
 impl User {
@@ -66,7 +67,8 @@ impl User {
         Self {
             socket: Some(tcp_stream),
             is_active: Mutex::new(true),
-            member: Arc::new(Member::new(address)),
+            client: Arc::new(Client::new(address)),
+            nick_name: Mutex::new(None),
         }
     }
 
@@ -103,50 +105,26 @@ impl User {
     /// This function does not return errors as it defaults to `self.address`
     /// if the nickname is absent.
     pub async fn get_display_name(&self) -> String {
-        let nickname = self.member.nick_name.lock().await;
+        let nickname = self.nick_name.lock().await;
 
         match &*nickname {
             Some(nick_name) => nick_name.clone(),
-            None => self.member.address.clone(),
+            None => self.client.address.clone(),
         }
     }
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct MemberDataTransferObject {
-    pub id: Vec<u8>,
-    pub address: Vec<u8>,
-    pub nick_name: Option<Vec<u8>>,
-}
-
-impl MemberDataTransferObject {
-    pub async fn from(member: &Member) -> Self {
-        let nick_name_guard = member.nick_name.lock().await;
-        let nick_name_clone = nick_name_guard.as_deref();
-        let nick_name_clone = match nick_name_clone {
-            Some(nn) => Some(nn.to_string().into_bytes()),
-            None => None,
-        };
-        Self {
-            id: member.id.into_bytes().to_vec(),
-            address: member.address.clone().into_bytes(),
-            nick_name: nick_name_clone,
-        }
-    }
-}
-
-pub struct Member {
+pub struct Client {
     pub id: String,
     pub address: String,
-    pub nick_name: Mutex<Option<String>>,
 }
 
-impl Member {
+impl Client {
     pub fn new(address: String) -> Self {
         Self {
             id: Uuid::new_v4().to_string(),
             address,
-            nick_name: Mutex::new(None),
         }
     }
 }

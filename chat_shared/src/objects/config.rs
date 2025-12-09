@@ -229,7 +229,12 @@ impl Config {
     /// ```
     pub fn from_path(config_path: Option<&Path>) -> Result<Self, ConfigError> {
         let mut config_file: File;
-        if let None = config_path {
+        if let Some(config_path) = config_path {
+            config_file = match File::open(config_path) {
+                Ok(file) => file,
+                Err(_) => return Err(ConfigError::NoConfigOrFlag),
+            }
+        } else {
             let first_arg = std::env::args().nth(0).unwrap();
             let mut working_path = Path::new(&first_arg)
                 .parent()
@@ -272,11 +277,6 @@ impl Config {
                     .ok_or(ConfigError::NoConfigOrFlag)?
                     .canonicalize()
                     .unwrap();
-            }
-        } else {
-            config_file = match File::open(config_path.unwrap()) {
-                Ok(file) => file,
-                Err(_) => return Err(ConfigError::NoConfigOrFlag),
             }
         }
 

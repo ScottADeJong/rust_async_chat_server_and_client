@@ -7,3 +7,4 @@ authors = [ "Scott DeJong", "Nathaniel C. Moratto" ]
 [dependencies]
 chat_shared.workspace = true
 tokio.workspace = true
+ron.workspace = true
